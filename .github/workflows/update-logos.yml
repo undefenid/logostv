@@ -1,0 +1,106 @@
+name: Update Logos Database
+
+on:
+  push:
+    paths:
+      - 'logos/**'
+
+jobs:
+  update-logos-json:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Necesario para detectar cambios en nombres de archivos
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Generate Logos JSON
+      id: generate-json
+      run: |
+        python - <<EOF
+        import os
+        import json
+        import glob
+        from pathlib import Path
+
+        # Configuración
+        LOGOS_DIR = 'logos'
+        JSON_FILE = 'logos.json'
+        REPO = os.environ['GITHUB_REPOSITORY']
+        BRANCH = os.environ['GITHUB_REF'].split('/')[-1]
+
+        # Obtener estado actual de logos
+        current_files = set()
+        for ext in ['png', 'jpg', 'jpeg', 'webp']:
+            for file in glob.glob(f"{LOGOS_DIR}/*.{ext}"):
+                current_files.add(file)
+
+        # Cargar JSON existente o crear nuevo
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, 'r') as f:
+                logos_db = json.load(f)
+        else:
+            logos_db = {}
+            print("Creating new logos.json")
+
+        # Encontrar archivos eliminados o renombrados
+        db_keys = set(logos_db.keys())
+        current_keys = set()
+        updated = False
+
+        # Verificar archivos existentes en JSON
+        for key in list(logos_db.keys()):
+            file_path = f"{LOGOS_DIR}/{key}.{logos_db[key].split('.')[-1]}"
+            if not os.path.exists(file_path):
+                del logos_db[key]
+                print(f"Removed: {key}")
+                updated = True
+
+        # Agregar nuevos archivos
+        for file_path in current_files:
+            file_name = Path(file_path).name
+            key = os.path.splitext(file_name)[0]
+            ext = file_name.split('.')[-1].lower()
+            
+            raw_url = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{file_path}"
+            
+            if key not in logos_db or logos_db[key] != raw_url:
+                logos_db[key] = raw_url
+                print(f"Added/Updated: {key} -> {raw_url}")
+                updated = True
+
+        # Guardar cambios si hubo actualizaciones
+        if updated or not os.path.exists(JSON_FILE):
+            with open(JSON_FILE, 'w') as f:
+                json.dump(logos_db, f, indent=2)
+                print(f"Database updated with {len(logos_db)} logos")
+        else:
+            print("No changes detected")
+        EOF
+
+    - name: Show Generated JSON
+      run: cat logos.json
+
+    - name: Commit and Push Changes
+      if: success() && steps.generate-json.outcome == 'success'
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        git add logos.json
+        
+        if ! git diff-index --quiet HEAD --; then
+          git commit -m "Actualizar base de datos de logos"
+          git push
+          echo "Changes pushed"
+        else
+          echo "No changes to commit"
+        fi
