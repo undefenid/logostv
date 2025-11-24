@@ -15,7 +15,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Necesario para detectar cambios en nombres de archivos
+        fetch-depth: 0
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -58,19 +58,26 @@ jobs:
 
         # Verificar archivos existentes en JSON
         for key in list(logos_db.keys()):
-            file_path = f"{LOGOS_DIR}/{key}.{logos_db[key].split('.')[-1]}"
+            # Intentamos reconstruir el path para verificar si existe
+            # Nota: esto asume que la extensión no cambió, si es crítico, la lógica puede mejorarse,
+            # pero para limpieza básica funciona.
+            current_url = logos_db[key]
+            ext = current_url.split('.')[-1]
+            file_path = f"{LOGOS_DIR}/{key}.{ext}"
+            
             if not os.path.exists(file_path):
                 del logos_db[key]
                 print(f"Removed: {key}")
                 updated = True
 
-        # Agregar nuevos archivos
+        # Agregar nuevos archivos o actualizar URLs
         for file_path in current_files:
             file_name = Path(file_path).name
             key = os.path.splitext(file_name)[0]
-            ext = file_name.split('.')[-1].lower()
             
-            raw_url = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{file_path}"
+            # --- CAMBIO AQUI: Formato jsDelivr ---
+            # Estructura: https://cdn.jsdelivr.net/gh/USER/REPO@BRANCH/PATH
+            raw_url = f"https://cdn.jsdelivr.net/gh/{REPO}@{BRANCH}/{file_path}"
             
             if key not in logos_db or logos_db[key] != raw_url:
                 logos_db[key] = raw_url
@@ -98,7 +105,7 @@ jobs:
         git add logos.json
         
         if ! git diff-index --quiet HEAD --; then
-          git commit -m "Actualizar base de datos de logos"
+          git commit -m "Actualizar base de datos de logos a jsDelivr"
           git push
           echo "Changes pushed"
         else
